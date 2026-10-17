@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       app_name:
-        description: 'App Name (অ্যাপের নাম)'
+        description: 'App Name'
         required: true
         default: 'My Web App'
       web_url:
-        description: 'Website URL (ওয়েবসাইটের লিঙ্ক)'
+        description: 'Website URL'
         required: true
-        default: 'https://google.com'
+        default: 'https://wikipedia.org'
       package_name:
         description: 'Package ID'
         required: true
@@ -26,10 +26,9 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.6'
+      - name: Accept Android Licenses
+        run: |
+          yes | sdkmanager --licenses || true
 
       - name: Generate Android Project
         run: |
@@ -50,8 +49,7 @@ jobs:
                   mavenCentral()
               }
               dependencies {
-                  classpath 'com.android.tools.build:gradle:8.4.1'
-                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.23'
+                  classpath 'com.android.tools.build:gradle:8.2.2'
               }
           }
           allprojects {
@@ -63,11 +61,9 @@ jobs:
           EOF
 
           # app/build.gradle
-          cat << EOF > app/build.gradle
-          plugins {
-              id 'com.android.application'
-              id 'org.jetbrains.kotlin.android'
-          }
+          cat << 'EOF' > app/build.gradle
+          apply plugin: 'com.android.application'
+
           android {
               namespace "${{ github.event.inputs.package_name }}"
               compileSdk 34
@@ -87,32 +83,33 @@ jobs:
                   sourceCompatibility JavaVersion.VERSION_17
                   targetCompatibility JavaVersion.VERSION_17
               }
-              kotlinOptions {
-                  jvmTarget = '17'
-              }
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'com.google.android.material:material:1.11.0'
-              implementation 'androidx.webkit:webkit:1.10.0'
           }
           EOF
 
+          # app/src/main/res/values/styles.xml
+          cat << 'EOF' > app/src/main/res/values/styles.xml
+          <resources>
+              <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+              </style>
+          </resources>
+          EOF
+
           # app/src/main/AndroidManifest.xml
-          cat << EOF > app/src/main/AndroidManifest.xml
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
-              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <application
                   android:allowBackup="true"
                   android:label="${{ github.event.inputs.app_name }}"
-                  android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+                  android:theme="@style/AppTheme"
                   android:usesCleartextTraffic="true">
                   <activity
                       android:name="com.engine.app.MainActivity"
-                      android:exported="true"
-                      android:configChanges="orientation|screenSize|keyboardHidden">
+                      android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -122,48 +119,51 @@ jobs:
           </manifest>
           EOF
 
-          # MainActivity.kt
-          cat << EOF > app/src/main/java/com/engine/app/MainActivity.kt
-          package com.engine.app
+          # app/src/main/java/com/engine/app/MainActivity.java
+          cat << 'EOF' > app/src/main/java/com/engine/app/MainActivity.java
+          package com.engine.app;
 
-          import android.annotation.SuppressLint
-          import android.os.Bundle
-          import android.webkit.WebView
-          import android.webkit.WebViewClient
-          import androidx.appcompat.app.AppCompatActivity
+          import android.os.Bundle;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import androidx.appcompat.app.AppCompatActivity;
 
-          class MainActivity : AppCompatActivity() {
-              private lateinit var webView: WebView
+          public class MainActivity extends AppCompatActivity {
+              private WebView webView;
 
-              @SuppressLint("SetJavaScriptEnabled")
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-                  webView = WebView(this)
-                  setContentView(webView)
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  webView = new WebView(this);
+                  setContentView(webView);
 
-                  webView.settings.apply {
-                      javaScriptEnabled = true
-                      domStorageEnabled = true
-                      databaseEnabled = true
-                      useWideViewPort = true
-                      loadWithOverviewMode = true
-                  }
-                  webView.webViewClient = WebViewClient()
-                  webView.loadUrl("${{ github.event.inputs.web_url }}")
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  webView.setWebViewClient(new WebViewClient());
+
+                  webView.loadUrl("${{ github.event.inputs.web_url }}");
               }
 
-              override fun onBackPressed() {
+              @Override
+              public void onBackPressed() {
                   if (webView.canGoBack()) {
-                      webView.goBack()
+                      webView.goBack();
                   } else {
-                      super.onBackPressed()
+                      super.onBackPressed();
                   }
               }
           }
           EOF
 
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.2.1'
+
       - name: Build APK with Gradle
-        run: gradle assembleDebug
+        run: gradle assembleDebug --stacktrace
 
       - name: Upload Output APK
         uses: actions/upload-artifact@v4
